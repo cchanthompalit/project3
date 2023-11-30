@@ -3,6 +3,7 @@ use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
 
 library work;
+use work.project_pkg.all;
 use work.seven_segment_pkg.all;
 
 entity top_level is
@@ -10,8 +11,9 @@ entity top_level is
         ADDR_WIDTH: natural := 12
     );
     port (
-        clock: in std_logic;
+        clock_50: in std_logic;
         new_adc_clock: in std_logic; -- Changed signal name
+		  reset:	in std_logic;
         displays: out seven_segment_array(0 to 2)
     );
 end entity top_level;
@@ -28,105 +30,105 @@ architecture driver of top_level is
     signal buffer_in: std_logic_vector((DATA_WIDTH - 1) downto 0);
     signal buffer_out: std_logic_vector((DATA_WIDTH - 1) downto 0);
 
-    signal tail_ptr, head_ptr, tail_producer, head_consumer: natural range 0 to 2**ADDR_WIDTH - 1; 
     signal buffer_write: std_logic;
+	 
+	 signal tail_ptr_a, head_ptr_a, tail_ptr_b, head_ptr_b: natural range 0 to 2**ADDR_WIDTH - 1;
+	 signal tail_ptr_a_vect, tail_ptr_b_vect: std_logic_vector(ADDR_WIDTH - 1 downto 0);
+	 signal head_ptr_a_vect, head_ptr_b_vect: std_logic_Vector(ADDR_WIDTH - 1 downto 0);
 
     -- Added signals for synchronizer
     signal sync_data_in : std_logic_vector(DATA_WIDTH - 1 downto 0);
     signal sync_data_out : std_logic_vector(DATA_WIDTH - 1 downto 0);
-	 
-	 component pll is
-		port (
-        -- Port declarations as per the 'pll' component
-        inclk0: in std_logic;
-        c0: out std_logic
-        -- Add other ports as needed
-    );
-	end component;
 	
-	component max10_adc is
-	port (
-		pll_clk:	in	std_logic;
-		chsel:		in	natural range 0 to 2**5 - 1;
-		soc:		in	std_logic;
-		tsen:		in	std_logic;
-		dout:		out	natural range 0 to 2**12 - 1;
-		eoc:		out	std_logic;
-		clk_dft:	out	std_logic
-	);
-end component;
-
-component true_dual_port_ram_dual_clock is
-
-	generic 
-	(
-		DATA_WIDTH : natural := 8;
-		ADDR_WIDTH : natural := 6
-	);
-
-	port 
-	(
-		clk_a	: in std_logic;
-		clk_b	: in std_logic;
-		addr_a	: in natural range 0 to 2**ADDR_WIDTH - 1;
-		addr_b	: in natural range 0 to 2**ADDR_WIDTH - 1;
-		data_a	: in std_logic_vector((DATA_WIDTH-1) downto 0);
-		data_b	: in std_logic_vector((DATA_WIDTH-1) downto 0);
-		we_a	: in std_logic := '1';
-		we_b	: in std_logic := '1';
-		q_a		: out std_logic_vector((DATA_WIDTH -1) downto 0);
-		q_b		: out std_logic_vector((DATA_WIDTH -1) downto 0)
-	);
-
-end component;
-
-
-component clock_crossing is
-    generic (
-        data_width: natural := 16  -- Width of the data
-    );
-    port (
-        clk_a: in std_logic;
-        clk_b: in std_logic;
-        rst: in std_logic;
-        bin_in: in std_logic_vector(data_width - 1 downto 0);  -- Binary input
-        bin_out: out std_logic_vector(data_width - 1 downto 0) -- Binary output
-    );
-end component;
-
-component adc_producer is
-    generic (
-        ADDR_WIDTH: natural := 6
-    );
-    port (
-        clock: in std_logic;
-        reset: in std_logic;
-        tail_ptr: in natural range 0 to 2**ADDR_WIDTH - 1;
-        eoc: in std_logic;
-        soc: out std_logic;
-        buffer_write: out std_logic; 
-        head_ptr: buffer natural range 0 to 2**ADDR_WIDTH - 1;
-        clock_out: out std_logic  -- Add an additional output for clock
-    );
-end component;
-
-component adc_control is
-    generic (
-        ADDR_WIDTH : natural := 6
-    );
-    port (
-        clock: in std_logic;
-        reset: in std_logic;
-        head_ptr: in natural range 0 to 2**ADDR_WIDTH - 1;
-        tail_ptr: buffer natural range 0 to 2**ADDR_WIDTH - 1
-    );
-end component;
-
 begin
+
+	-- clock domain B things (1 MHz)
+    producer_fsm: adc_producer
+        generic map (
+            ADDR_WIDTH => 12
+        )
+        port map (
+            clock => producer_clock,
+            reset => reset,
+            tail_ptr => tail_ptr_b,
+            eoc => eoc,
+            soc => soc,
+            buffer_write => buffer_write,
+            head_ptr => head_ptr_b
+        );
+
+	
+	-- clock domain A things (50 MHz)
+    cons_fsm: adc_control
+        generic map (
+            ADDR_WIDTH => 12
+        )
+        port map (
+            clock => clock_50,
+            reset => reset,
+            head_ptr => head_ptr_a,
+            tail_ptr => tail_ptr_a
+        );
+	
+	
+	-- clock domain crossing sychnronizers
+	-- from A to B
+	tail_ptr_a_vect <= std_logic_vector(to_unsigned(tail_ptr_a, ADDR_WIDTH));
+	tail_ptr_b <= to_integer(unsigned(tail_ptr_b_vect));
+	a_to_b_crossing: clock_crossing
+		generic map (
+			data_width => ADDR_WIDTH
+		)
+		port map (
+			clk_a =>		clock_50,	
+			clk_b =>		producer_clock,
+			rst =>		reset,
+			bin_in =>	tail_ptr_a_vect,
+			bin_out =>	tail_ptr_b_vect
+			
+		);
+	
+	-- from B to A
+	head_ptr_b_vect <= std_logic_vector(to_unsigned(head_ptr_b, ADDR_WIDTH));
+	head_ptr_a <= to_integer(unsigned(head_ptr_a_vect));
+	b_to_a_crossing: clock_crossing
+		generic map (
+			data_width => ADDR_WIDTH
+		)
+		port map (
+			clk_a =>		producer_clock,	
+			clk_b =>		clock_50,
+			rst =>		reset,
+			bin_in =>	head_ptr_b_vect,
+			bin_out =>	head_ptr_a_vect
+		);
+	-- RAM buffer
+	memory: true_dual_port_ram_dual_clock
+	generic map (
+			DATA_WIDTH => DATA_WIDTH,
+			ADDR_WIDTH => ADDR_WIDTH
+		)
+		port map (
+			clk_a => clock_50,
+			clk_b => producer_clock,
+			addr_a => tail_ptr_a,
+			addr_b => head_ptr_b,
+			data_a => (others => '0'),	-- not writing anything
+			data_b => buffer_in,
+			we_a => '0',					-- seriously, not writing anything
+			we_b => buffer_write,
+			q_a => buffer_out,
+			q_b => open						-- not reading anything
+		);
+
+
+	---- REGROUP stuff below into groups above
+	
+	
     adc_pll: pll
         port map (
             inclk0 => new_adc_clock,
-            c0 => adc_clock -- Corrected signal name
+            c0 => adc_clock 
         );
 
     adc: max10_adc
@@ -142,60 +144,8 @@ begin
 
     buffer_in <= std_logic_vector(to_unsigned(adc_out, DATA_WIDTH));
 
-    memory: true_dual_port_ram_dual_clock
-        generic map (
-            DATA_WIDTH => DATA_WIDTH,
-            ADDR_WIDTH => ADDR_WIDTH
-        )
-        port map (
-            clk_a => adc_clock,
-            clk_b => producer_clock,
-            addr_a => tail_ptr,
-            addr_b => head_ptr,
-            data_a => (others => '0'),
-            data_b => buffer_in,
-            we_a => '0',
-            we_b => buffer_write,
-            q_a => buffer_out,
-            q_b => open
-        );
-
     -- Synchronize buffer_out before feeding into synchronizer
     sync_data_in <= buffer_out;
-    crossing_inst: clock_crossing
-        generic map (
-            data_width => DATA_WIDTH
-        )
-        port map (
-            clk_a => clock,
-				clk_b => clock,
-            rst => '0', 
-            bin_in => std_logic_vector(to_unsigned(head_ptr, DATA_WIDTH)),
-            bin_out => sync_data_out
-        );
-    producer_fsm: adc_producer
-        generic map (
-            ADDR_WIDTH => 12
-        )
-        port map (
-            clock => producer_clock,
-            reset => '1',
-            tail_ptr => tail_producer,
-            eoc => eoc,
-            soc => soc,
-            buffer_write => buffer_write,
-            head_ptr => head_ptr
-        );
-
-    cons_fsm: adc_control
-        generic map (
-            ADDR_WIDTH => 12
-        )
-        port map (
-            clock => consumer_clock,
-            reset => '1',
-            head_ptr => head_consumer,
-            tail_ptr => tail_ptr
-        );
-
+   
+	
 end architecture driver;
