@@ -10,7 +10,7 @@ entity synchronizer is
 			clk_b : in STD_LOGIC;
          rst : in STD_LOGIC;
          data_in : in STD_LOGIC_VECTOR(data_width - 1 downto 0);
-         data_out : out STD_LOGIC(data_width - 1 downto 0)
+         data_out : out STD_LOGIC_vector(data_width - 1 downto 0)
 	 );
 end synchronizer;
 
