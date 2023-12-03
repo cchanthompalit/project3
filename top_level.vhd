@@ -12,7 +12,7 @@ entity top_level is
     );
     port (
         clock_50: in std_logic;
-        new_adc_clock: in std_logic; -- Changed signal name
+        new_adc_clock: in std_logic; 
 		  reset:	in std_logic;
         displays: out seven_segment_array(0 to 2)
     );
@@ -29,6 +29,7 @@ architecture driver of top_level is
     signal adc_out: natural range 0 to 2**DATA_WIDTH - 1;
     signal buffer_in: std_logic_vector((DATA_WIDTH - 1) downto 0);
     signal buffer_out: std_logic_vector((DATA_WIDTH - 1) downto 0);
+	 signal segment_in: natural range 0 to 2**DATA_WIDTH - 1;
 
     signal buffer_write: std_logic;
 	 
@@ -42,6 +43,7 @@ architecture driver of top_level is
 	
 begin
 
+buffer_in <= std_logic_vector(to_unsigned(adc_out, DATA_WIDTH));
 	-- clock domain B things (1 MHz)
     producer_fsm: adc_producer
         generic map (
@@ -141,11 +143,8 @@ begin
             eoc => eoc,
             clk_dft => producer_clock
         );
-
-    buffer_in <= std_logic_vector(to_unsigned(adc_out, DATA_WIDTH));
-
-    -- Synchronize buffer_out before feeding into synchronizer
-    sync_data_in <= buffer_out;
-   
-	
+  
+	displays <= get_output(buffer_out);
+	--segment_in <= to_integer(unsigned(buffer_out));
+	--displays <= need_hex_number(segment_in);	
 end architecture driver;
