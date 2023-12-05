@@ -54,7 +54,7 @@ architecture prod_fsm of adc_producer is
         end if;
     end function valid_ptrs;
 begin
-    transition_function: process(state) is
+    transition_function: process(state, eoc, head_ptr, tail_ptr) is
     begin
         next_state <= state;
         case (state) is
@@ -70,7 +70,7 @@ begin
         end case;
     end process transition_function;
 
-    save_state: process(clock) is
+    save_state: process(clock, reset) is
     begin
         if reset = '0' then
             state <= Init;
@@ -79,7 +79,7 @@ begin
         end if;
     end process save_state;
 
-    output_function: process(clock) is
+    output_function: process(clock, reset) is
     begin
         if reset = '0' then
             soc <= '0';
