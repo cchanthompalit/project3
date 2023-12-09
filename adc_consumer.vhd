@@ -5,7 +5,7 @@ use ieee.numeric_std.all;
 library work;
 use work.project_pkg.all;
 
-entity adc_control is
+entity adc_consumer is
     generic (
         ADDR_WIDTH : natural := 6
     );
@@ -15,9 +15,9 @@ entity adc_control is
         head_ptr: in natural range 0 to 2**ADDR_WIDTH - 1;
         tail_ptr: buffer natural range 0 to 2**ADDR_WIDTH - 1
     );
-end entity adc_control;
+end entity adc_consumer;
 
-architecture cons_fsm of adc_control is
+architecture cons_fsm of adc_consumer is
     
     type state_type is
         (Init, Start, Waiting, Reading, Increment);
